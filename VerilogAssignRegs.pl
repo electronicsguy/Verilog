@@ -9,6 +9,7 @@
 # Note: written as a hack. Many assumptions made about file layout
 # Note: May not understand commented lines or comment blocks at all
 # Not guaranteed to work for buses or 2-D arrays
+# Will not work with split lines
 
 # Sujay Phadke, (C) 2017
 
@@ -60,6 +61,7 @@ sub BuildIOHash{
 		# Module declaration starts with the keyword "module"
 		if (($flag == 0) && (m/module/)){
 			$flag = 1;
+			push @ModDecl, $_;
 			next;
 		}
 		# Module declaration must end with ");"
@@ -92,13 +94,12 @@ sub BuildIOHash{
 			$present = (defined $1) ? 1 : 0;
 			$net = $2;
 
-			# Remove last char and trailing comma, if present
+			# Remove \r,\n and trailing comma, if present
 			# note: the last line of module declaration will not have the comma
-			chop $net;
+			$net =~ s/[\r\n]+$//;
 			$net =~ s/,//;
 
 			$IOHash{$net} = $present;
-			
 		}
 		
 		# Outside module
@@ -109,7 +110,7 @@ sub BuildIOHash{
 			$present = ($1 eq "reg") ? 1 : 0;
 			$net = $2;
 			# Remove last char and trailing semi-colon, if present
-			chop $net;
+			$net =~ s/[\r\n]+$//;
 			$net =~ s/;//;
 			$NetsHash{$net} = $present;
 			push @IntNets, $_;
