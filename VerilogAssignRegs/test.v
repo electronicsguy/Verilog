@@ -1,7 +1,7 @@
 module top(
-
-        output b,
-        input a
+        input a,
+        output b
+        
 );
 
         always @(*)
