@@ -1,0 +1,8 @@
+lvalue: b needs to be a reg in the module declaration
+
+Corrected Module declaration and Internal nets:
+module top(
+        input a,
+        output reg b,
+
+);
