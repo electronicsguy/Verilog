@@ -10,12 +10,16 @@
 # Note: May not understand commented lines or comment blocks at all
 # Not guaranteed to work for buses or 2-D arrays
 # Will not work with split lines
+# signals of type "inout" are not supported
 
 # Sujay Phadke, (C) 2017
 
 use strict;
 use warnings;
 use File::Slurp;
+
+use Term::ANSIColor;
+my $COLORTERM = 1;
 
 my $inpfile;
 #my $outfile;
@@ -27,8 +31,12 @@ my %NetsHash;
 my @ModDecl;
 my @IntNets;
 
+my $ModDeclErrors;
+my $IntNetsErrors;
+my $TrailingComma;
+
 if (scalar (@ARGV == 0)){
-	die "\nNo input file specified!\n";
+	print_err("\nNo input file specified!\n");
 	exit 1;
 }
 
@@ -43,9 +51,18 @@ close $inpfile;
 
 BuildIOHash();
 
+if ($TrailingComma == 1){
+	print_err("\nModule declaration possibly contains an erroneous trailing comma!\n");
+}
+
 ParseProcedures();
 
-PrintOutput();
+if (($ModDeclErrors > 0) || ($IntNetsErrors > 0)){
+	PrintOutput();
+}
+else{
+	print_color("\nNo Errors found!\n", 'cyan');
+}
 
 exit 0;
 
@@ -57,6 +74,7 @@ sub BuildIOHash{
 	my $present;
 	
 	$flag = 0;
+	$TrailingComma = 0;
 	foreach(@inpLines){
 		# Module declaration starts with the keyword "module"
 		if (($flag == 0) && (m/module/)){
@@ -72,7 +90,7 @@ sub BuildIOHash{
 		}
 		
 		# Skip commented lines
-		if (m/\s*\/\//){
+		if (m/^\s*\/\//){
 			next;
 		}
 		
@@ -95,16 +113,34 @@ sub BuildIOHash{
 			$net = $2;
 
 			# Remove \r,\n and trailing comma, if present
-			# note: the last line of module declaration will not have the comma
+			# note: the last line inside the  module declaration
+			# will not have the comma. Hence we can't include it in the regex above
 			$net =~ s/[\r\n]+$//;
-			$net =~ s/,//;
+			$TrailingComma = $net =~ s/,//;
 
 			$IOHash{$net} = $present;
+			
+		}
+		
+		# Check for input signals
+		# Note: "inout" is skipped for now
+		if (($flag == 1) && (m/\s*(?:input)\s+(?:\[.*\])?\s*(.*)/)){
+			# make sure $1 and $2 are stored in some variables
+			# before doing other operations
+			$net = $1;
+
+			# Remove \r,\n and trailing comma, if present
+			# note: the last line of module declaration will not have the comma
+			$net =~ s/[\r\n]+$//;
+			$TrailingComma = $net =~ s/,//;
+
+			$IOHash{$net} = 0;
 		}
 		
 		# Outside module
 		# Parse internal nets (wire or reg)
-		if (($flag == 2) && (m/\s*(reg|wire)\s+(?:\[.*\])?\s*(.*)/)){
+		# Will stop parsing name at the semi-colon
+		if (($flag == 2) && (m/\s*(reg|wire)\s+(?:\[.*\])?\s*(.*);/)){
 			# make sure $1 and $2 are stored in some variables
 			# before doing other operations
 			$present = ($1 eq "reg") ? 1 : 0;
@@ -114,6 +150,7 @@ sub BuildIOHash{
 			$net =~ s/;//;
 			$NetsHash{$net} = $present;
 			push @IntNets, $_;
+			#print "\nNet: $net  is  a reg: $present";
 		}
 				
 	} # end foreach
@@ -124,9 +161,13 @@ sub BuildIOHash{
 
 sub ParseProcedures{
 	my $flag;
-	my $net;
+	my $lvalue;
+	my $rvalue;
 	
 	$flag = 0;
+	$ModDeclErrors = 0;
+	$IntNetsErrors = 0;
+	
 	foreach(@inpLines){
 		# Procedural blocks keywords
 		# http://verilog.renerta.com/mobile/source/vrg00036.htm
@@ -151,48 +192,75 @@ sub ParseProcedures{
 		}
 		
 		# Skip commented lines
-		if (m/\s*\/\//){
+		if (m/^\s*\/\//){
 			next;
 		}
 		
 		# Inside procedure.
+		# assignment statement will stop reading the line at the semi-colon
 		if (($flag == 2) && (m/\s*(.+?)\s*=\s*(.+?);/)){
-			$net = $1;
-						
-			if (exists $NetsHash{$net}){
-				if ($NetsHash{$net} != 1){
-					print "\nlvalue: $net needs to be declared as an internal reg";
+			$lvalue = $1;
+			$rvalue = $2;
+			
+			# Check if lvalue is declared as a module output reg or an internal reg
+			if (exists $NetsHash{$lvalue}){
+				if ($NetsHash{$lvalue} != 1){
+					print_color("\nlvalue: $lvalue needs to be declared as an internal reg", 'green');
 					foreach (@IntNets){
-						if (m/wire\s+(?:\[.*\])?\s*$net/){
+						if (m/wire\s+(?:\[.*\])?\s*$lvalue/){
 							s/wire/reg/;
 						}
 					}
+					
+					$ModDeclErrors++;
+					
 				}
 				else{
-					print "\nlvalue: $net is correctly declared as a reg internally";
+					print "\nlvalue: $lvalue is correctly declared as a reg internally";
 				}
 			}
-			elsif (exists $IOHash{$net}){
-				if ($IOHash{$net} != 1){
-					print "\nlvalue: $net needs to be a reg in the module declaration";
+			elsif (exists $IOHash{$lvalue}){
+				if ($IOHash{$lvalue} != 1){
+					print_color("\nlvalue: $lvalue needs to be a reg in the module declaration", 'yellow');
 					foreach (@ModDecl){
-						if (m/output\s+(?:\[.*\])?\s*$net/){
+						if (m/output\s+(?:\[.*\])?\s*$lvalue/){
 							s/output/output reg/;
 						}
 					}
+					
+					$IntNetsErrors++;
 				}
 				else{
-					print "\nlvalue: $net is correctly declared as a reg in the module declaration";
+					print "\nlvalue: $lvalue is correctly declared as a reg in the module declaration";
 				}
 			}
 			else{
-				print "\nlvalue: $net not declared as an output or internet net!";
-				print "\nAssuming it to be an internal net and adding it in. Check size, etc.";
-				push @IntNets, "reg $net;\t\t// Check size\n";
+				print_color("\nlvalue: $lvalue not declared as an output or internet net!", 'red');
+				print_color("\nAssuming it to be an internal reg and adding it in. Check size, etc.", 'red');
+				push @IntNets, "reg $lvalue;\t\t// Check size\n";
 				
 				# Add the net to the nets hash so that it won't be duplicate if another
 				# assign statement is present with the same net
-				$NetsHash{$net} = 1;
+				$NetsHash{$lvalue} = 1;
+				$IntNetsErrors++;
+			}
+			
+			# Rvalue may exist as an interal wire or module input
+			# If not present, mark as an error and include it in the
+			# nets hash as a 'wire'
+			if ((exists $NetsHash{$rvalue}) || exists $IOHash{$rvalue}){
+				print "\nrvalue: $rvalue is correctly declared internally";
+			}
+			else{
+				print_color("\nrvalue: $rvalue needs to be declared", 'magenta');
+				print_color("\nAssuming it to be an internal wire and adding it in. Check size, etc.", 'magenta');
+				
+				push @IntNets, "wire $rvalue;\t\t// Check size\n";
+				
+				# Add the net to the nets hash so that it won't be duplicate if another
+				# assign statement is present with the same net
+				$NetsHash{$rvalue} = 0;
+				$IntNetsErrors++;
 			}
 		}
 	} # end foreach
@@ -201,9 +269,29 @@ sub ParseProcedures{
 
 sub PrintOutput{
 	print "\n";
-	print "\nCorrected Module declaration and Internal nets:\n";
+	print_color("\nCorrected Module declaration and Internal nets:\n", 'red');
 	print join('', @ModDecl);
 	print "\n\n";
 	print join('', @IntNets);
 	print "\n";
 }
+
+sub print_err{
+	my $msg = shift;
+	
+	print STDERR color('red');
+	print STDERR $msg;
+	print STDERR color('reset');
+	print STDERR "\n";
+}
+
+sub print_color{
+	no strict 'vars';
+	my $msg = shift;
+	my $color = shift;
+	
+	print color($color) if defined($COLORTERM);
+	print $msg;
+	print color('reset') if defined($COLORTERM);
+}
+
