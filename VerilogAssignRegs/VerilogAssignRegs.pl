@@ -7,10 +7,14 @@
 # assignment statement cannot be used in this context
 
 # Note: written as a hack. Many assumptions made about file layout
-# Note: May not understand commented lines or comment blocks at all
-# Not guaranteed to work for buses or 2-D arrays
-# Will not work with split lines
-# signals of type "inout" are not supported
+# 1. May not understand commented lines or comment blocks at all
+# 2. Not guaranteed to work for buses or 2-D arrays
+# 3. Will not work with split lines
+# 4. signals of type "inout" are not supported
+# 5. Only simple signal assignments are supported (A = B). No complex
+#    assignments like A = B | C
+# 6. assignment statements need to be on their own lines
+#    eg: if (...)  a = b;   won't work
 
 # Sujay Phadke, (C) 2017
 
@@ -27,6 +31,7 @@ my @inpLines;
 
 my %IOHash;
 my %NetsHash;
+my %checkedNets;
 
 my @ModDecl;
 my @IntNets;
@@ -163,6 +168,7 @@ sub ParseProcedures{
 	my $flag;
 	my $lvalue;
 	my $rvalue;
+	my $rvalue2;
 	
 	$flag = 0;
 	$ModDeclErrors = 0;
@@ -198,9 +204,30 @@ sub ParseProcedures{
 		
 		# Inside procedure.
 		# assignment statement will stop reading the line at the semi-colon
-		if (($flag == 2) && (m/\s*(.+?)\s*=\s*(.+?);/)){
+		# lvalue and rvalue: use \w+ instead of .+ so that we capture only simple nets and
+		# not complex expressions like netA + netB
+		if (($flag == 2) && (m/\s*(\w+?)\s*=\s*(.+?);/)){
 			$lvalue = $1;
 			$rvalue = $2;
+			
+			# Make sure rvalue is only of a simple type (words) and
+			# not complex (expressions)
+			# We can't use (\w+?) above directly, since we do want
+			# to match the lvalue even if rvalue is complex
+			if ($2 =~ m/(\w+)/){
+				if ($1 ne $rvalue){
+					$rvalue = "";
+				}
+			}
+			else{
+				$rvalue = "";
+			}
+			
+			
+			$checkedNets{$lvalue}++;
+			if ($rvalue ne ""){
+				$checkedNets{$rvalue}++;
+			}
 			
 			# Check if lvalue is declared as a module output reg or an internal reg
 			if (exists $NetsHash{$lvalue}){
@@ -248,19 +275,21 @@ sub ParseProcedures{
 			# Rvalue may exist as an interal wire or module input
 			# If not present, mark as an error and include it in the
 			# nets hash as a 'wire'
-			if ((exists $NetsHash{$rvalue}) || exists $IOHash{$rvalue}){
-				print "\nrvalue: $rvalue is correctly declared internally";
-			}
-			else{
-				print_color("\nrvalue: $rvalue needs to be declared", 'magenta');
-				print_color("\nAssuming it to be an internal wire and adding it in. Check size, etc.", 'magenta');
-				
-				push @IntNets, "wire $rvalue;\t\t// Check size\n";
-				
-				# Add the net to the nets hash so that it won't be duplicate if another
-				# assign statement is present with the same net
-				$NetsHash{$rvalue} = 0;
-				$IntNetsErrors++;
+			if ($rvalue ne ""){
+				if ((exists $NetsHash{$rvalue}) || exists $IOHash{$rvalue}){
+					print "\nrvalue: $rvalue is correctly declared internally";
+				}
+				else{
+					print_color("\nrvalue: $rvalue needs to be declared", 'magenta');
+					print_color("\nAssuming it to be an internal wire and adding it in. Check size, etc.", 'magenta');
+					
+					push @IntNets, "wire $rvalue;\t\t// Check size\n";
+					
+					# Add the net to the nets hash so that it won't be duplicate if another
+					# assign statement is present with the same net
+					$NetsHash{$rvalue} = 0;
+					$IntNetsErrors++;
+				}
 			}
 		}
 	} # end foreach
