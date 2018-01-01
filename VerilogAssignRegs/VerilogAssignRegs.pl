@@ -179,21 +179,22 @@ sub ParseProcedures{
 		# http://verilog.renerta.com/mobile/source/vrg00036.htm
 		
 		# NOTE: 1-liners without begin/end are skipped
-		if (($flag == 0) && (m/(always|initial)/)){
-			$flag = 1;
+		if (m/(always|initial)/){
+			$flag = 0;
 			next;
 		}
 		
-		# Assume "begin" and "end" keywords are on their own lines
-		if (($flag == 1) && (m/begin/)){
-			$flag = 2;
+		# The "++" takes care of if/while statements inside the always block
+		# only when the flag count is 0, is when the always block has ended
+		if (m/begin/){
+			$flag++;
 			next;
 		}
 		
 		# after reaching "end" reset flag to continue
 		# parsing for following blocks
-		if (($flag == 2) && (m/end/)){
-			$flag = 0;
+		if (($flag >= 1) && (m/end/)){
+			$flag--;
 			next;
 		}
 		
@@ -206,7 +207,7 @@ sub ParseProcedures{
 		# assignment statement will stop reading the line at the semi-colon
 		# lvalue and rvalue: use \w+ instead of .+ so that we capture only simple nets and
 		# not complex expressions like netA + netB
-		if (($flag == 2) && (m/\s*(\w+?)\s*=\s*(.+?);/)){
+		if (($flag >= 1) && (m/\s*(\w+?)\s*=\s*(.+?);/)){
 			$lvalue = $1;
 			$rvalue = $2;
 			
