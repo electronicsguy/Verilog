@@ -16,7 +16,7 @@
 # 6. assignment statements need to be on their own lines
 #    eg: if (...)  a = b;   won't work
 
-# Sujay Phadke, (C) 2017
+# Sujay Phadke (C) 2018
 
 use strict;
 use warnings;
@@ -263,7 +263,7 @@ sub ParseProcedures{
 				}
 			}
 			else{
-				print_color("\nlvalue: $lvalue not declared as an output or internet net!", 'red');
+				print_color("\nlvalue: $lvalue not declared as an output or input net!", 'red');
 				print_color("\nAssuming it to be an internal reg and adding it in. Check size, etc.", 'red');
 				push @IntNets, "reg $lvalue;\t\t// Check size\n";
 				
